@@ -3,3 +3,7 @@ resume.pdf
 profile.yaml
 __pycache__/
 .venv/
+.env
+*.docx
+*.pdf
+jobs.txt

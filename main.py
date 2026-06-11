@@ -37,7 +37,8 @@ async def extract_form_fields(page) -> list[dict]:
     """Collect visible form controls with their labels."""
     return await page.evaluate(
         """
-        () => Array.from(document.querySelectorAll('input, textarea, select'))
+        () => Array.from(document.querySelectorAll(
+                'input, textarea, select, [role=combobox], [aria-haspopup=listbox]'))
             .filter(el => {
                 const r = el.getBoundingClientRect();
                 if (el.type === 'hidden' || r.width <= 0 || r.height <= 0) return false;
@@ -48,19 +49,25 @@ async def extract_form_fields(page) -> list[dict]:
                 if (el.labels && el.labels.length) label = el.labels[0].innerText;
                 if (!label && el.getAttribute('aria-label')) label = el.getAttribute('aria-label');
                 if (!label && el.placeholder) label = el.placeholder;
+                if (!label && el.getAttribute('aria-labelledby')) {
+                    const ref = document.getElementById(el.getAttribute('aria-labelledby'));
+                    if (ref) label = ref.innerText;
+                }
                 if (!label) {
                     const wrap = el.closest('div,fieldset');
                     const lab = wrap && wrap.querySelector('label');
                     if (lab) label = lab.innerText;
                 }
+                const isCombo = el.getAttribute('role') === 'combobox'
+                                || el.getAttribute('aria-haspopup') === 'listbox';
                 return {
                     idx,
-                    tag: el.tagName.toLowerCase(),
+                    tag: isCombo && el.tagName !== 'SELECT' ? 'combobox' : el.tagName.toLowerCase(),
                     type: el.type || '',
                     name: el.name || '',
                     id: el.id || '',
                     label: (label || '').trim().slice(0, 200),
-                    required: el.required || false,
+                    required: el.required || el.getAttribute('aria-required') === 'true' || false,
                     options: el.tagName === 'SELECT'
                         ? Array.from(el.options).map(o => o.text.trim()).slice(0, 50)
                         : null,
@@ -106,7 +113,8 @@ Return ONLY JSON: {{"<idx>": {{"value": "...", "source": "profile|generated|skip
 async def fill_field(page, field: dict, value: str, resume_path: str):
     selector = None
     if field["id"]:
-        selector = f"#{field['id']}"
+        # attribute form handles IDs that start with digits (Ashby uses UUID ids)
+        selector = f"[id='{field['id']}']"
     elif field["name"]:
         selector = f"{field['tag']}[name=\"{field['name']}\"]"
     if not selector:
@@ -114,6 +122,13 @@ async def fill_field(page, field: dict, value: str, resume_path: str):
     try:
         if value == "UPLOAD_RESUME":
             await page.set_input_files(selector, resume_path)
+        elif field["tag"] == "combobox":
+            # Greenhouse/React custom dropdown: open, type to filter, pick first match
+            loc = page.locator(selector).first
+            await loc.click(timeout=5000)
+            await loc.type(value, delay=30)
+            await page.wait_for_timeout(800)
+            await page.keyboard.press("Enter")
         elif field["tag"] == "select":
             await page.select_option(selector, label=value)
         elif field["type"] in ("checkbox", "radio"):
@@ -133,9 +148,32 @@ async def apply_to(page, url: str, profile: dict):
     await page.wait_for_timeout(2000)
 
     fields = await extract_form_fields(page)
-    if not fields:
-        print("  no form found on page (may need to click 'Apply' first) — skipping")
-        return
+    if not fields or len(fields) < 3:
+        # Posting pages usually hide the form behind an Apply button — click through.
+        print("  no form yet — looking for an Apply button...")
+        for sel in ["a:has-text('Apply')", "button:has-text('Apply')",
+                    "a:has-text('apply now')", "button:has-text('Apply Now')"]:
+            try:
+                async with page.context.expect_page(timeout=4000) as popup_info:
+                    await page.locator(sel).first.click(timeout=4000)
+                page = await popup_info.value  # form opened in a new tab
+                break
+            except Exception:
+                try:  # same-tab navigation case
+                    await page.locator(sel).first.click(timeout=2000)
+                    break
+                except Exception:
+                    continue
+        await page.wait_for_timeout(4000)
+        fields = await extract_form_fields(page)
+        if not fields:
+            print("  still no form found — leaving the page open so you can navigate"
+                  " to the form manually; close the tab to continue")
+            try:
+                await page.wait_for_event("close", timeout=0)
+            except Exception:
+                pass
+            return
 
     print(f"  {len(fields)} fields found; planning answers with {LLM_MODEL}...")
     plan = plan_answers(fields, profile, url)
@@ -151,7 +189,11 @@ async def apply_to(page, url: str, profile: dict):
         filled += ok
     print(f"  filled {filled}, skipped {skipped}")
     print("  >>> REVIEW the form in the browser window, then click Submit yourself.")
-    input("  Press Enter here when done (or to skip to the next job)... ")
+    print("  >>> When you're done, CLOSE THE BROWSER TAB to move on.")
+    try:
+        await page.wait_for_event("close", timeout=0)
+    except Exception:
+        pass
 
 
 async def main(urls: list[str]):
@@ -162,9 +204,18 @@ async def main(urls: list[str]):
             user_data_dir=os.path.join(os.path.dirname(__file__), ".browser-profile"),
             headless=False,
         )
-        page = await browser.new_page()
         for url in urls:
-            await apply_to(page, url, profile)
+            # fresh tab per job — the previous one gets closed by the user after review
+            page = await browser.new_page()
+            try:
+                await apply_to(page, url, profile)
+            except Exception as e:
+                print(f"  ! {url} aborted ({type(e).__name__}) — moving to next job")
+            if not page.is_closed():
+                try:
+                    await page.close()
+                except Exception:
+                    pass
         await browser.close()
 
 
