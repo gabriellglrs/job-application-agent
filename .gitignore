@@ -1,9 +1,33 @@
+# Browser profiles — contain cookies, login data, session tokens. NEVER commit.
 .browser-profile/
+.gmail-browser-profile/
+.simplify-browser-profile/
+*-browser-profile/
+
+# Personal data — resumes, application history, contacts, prep notes
+data/
+outputs/
+resumes/
+docs/
+scratch/
 resume.pdf
 profile.yaml
-__pycache__/
-.venv/
-.env
+jobs.txt
 *.docx
 *.pdf
-jobs.txt
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*

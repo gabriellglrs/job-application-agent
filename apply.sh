@@ -5,7 +5,7 @@
 cd "$(dirname "$0")"
 set -a; source .env; set +a
 if [ -n "$1" ]; then
-  .venv/bin/python -u main.py "$1"
+  .venv/bin/python -u main.py "$@"
 else
-  .venv/bin/python -u main.py --queue jobs.txt
+  .venv/bin/python -u main.py --queue data/jobs.txt
 fi
