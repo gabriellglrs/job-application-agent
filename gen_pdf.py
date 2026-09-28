@@ -16,7 +16,9 @@ from tailor import md_to_html, render_pdf  # noqa: E402
 
 
 async def main(md_path: str, pdf_path: str) -> None:
-    with open(md_path) as f:
+    # encoding explícito: no Windows o open() usa cp1252 e corrompe UTF-8
+    # (medido: "Brasília" virava "Bras[C3] lia" no PDF — ATS lia lixo)
+    with open(md_path, encoding="utf-8") as f:
         md = f.read()
     out = os.path.expanduser(pdf_path)
     async with async_playwright() as pw:

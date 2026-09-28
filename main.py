@@ -50,7 +50,7 @@ FORCE = False  # set by --force: revisit URLs even if they are in applied.csv
 
 
 def load_profile() -> dict:
-    with open(PROFILE_PATH) as f:
+    with open(PROFILE_PATH, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -144,7 +144,7 @@ def normalize_company_key(company: str) -> str:
 def load_applied() -> set[str]:
     if not os.path.exists(APPLIED_LOG):
         return set()
-    with open(APPLIED_LOG) as f:
+    with open(APPLIED_LOG, encoding="utf-8") as f:
         next(f, None)  # header
         return {job_key(line.split(",")[2].strip())
                 for line in f if line.count(",") >= 3}
@@ -154,7 +154,7 @@ def load_applied_company_history() -> dict[str, set[str]]:
     history: dict[str, set[str]] = {}
     if not os.path.exists(APPLIED_LOG):
         return history
-    with open(APPLIED_LOG, newline="") as f:
+    with open(APPLIED_LOG, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             company = normalize_company_key(row.get("company", ""))
             status = (row.get("status") or "").strip().lower()
@@ -168,7 +168,7 @@ def load_email_company_history() -> dict[str, set[str]]:
     for path in (GMAIL_WEB_LOG, GMAIL_API_LOG):
         if not os.path.exists(path):
             continue
-        with open(path, newline="") as f:
+        with open(path, newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
                 company = normalize_company_key(row.get("company") or "")
                 status = (row.get("status") or "").strip().lower()
@@ -212,7 +212,7 @@ def record_applied(url: str, status: str = "reviewed"):
         company = parts[0]
     else:
         company = host.removeprefix("www.").split(".")[0]
-    with open(APPLIED_LOG, "a") as f:
+    with open(APPLIED_LOG, "a", encoding="utf-8") as f:
         f.write(f"{datetime.date.today()},{company},{url},{status}\n")
 
 
@@ -292,6 +292,7 @@ Rules:
 Return ONLY JSON: {{"<idx>": {{"value": "...", "source": "profile|generated|skip"}}}}"""
     resp = get_llm().chat.completions.create(
         model=LLM_MODEL,
+        max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
     )
@@ -533,7 +534,7 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
     if args[0] == "--queue":
-        with open(args[1]) as f:
+        with open(args[1], encoding="utf-8") as f:
             urls = [l.strip() for l in f if l.strip() and not l.startswith("#")]
     else:
         urls = args

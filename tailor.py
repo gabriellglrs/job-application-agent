@@ -30,11 +30,12 @@ HARD RULES — violating any of these makes the output unusable:
 
 WHAT TO DO:
 - Rewrite the PROFESSIONAL SUMMARY to mirror the job's language and priorities.
-- Preserve the core positioning: Kevin is a senior software / implementation
-  engineer who deploys AI into customer systems, not a narrow AI-only specialist.
-- For FDE, solutions, applied AI, customer engineer, implementation, deployment,
-  or agent workflow roles, keep customer-facing delivery, enterprise integration,
-  stakeholder communication, and production ownership visible in the top third.
+- Preserve the core positioning: Gabriel is a backend developer (PHP/Yii, Java/Spring Boot)
+  with hands-on legacy modernization, automated testing and Docker experience,
+  targeting mid-level (pleno) backend roles.
+- For backend, Java/Spring, PHP/Laravel/Yii, microservices or full-stack roles, keep
+  architecture (Service Layer), automated tests, Docker, stakeholder communication,
+  and production ownership visible in the top third.
 - Reorder skills groups and bullets so the most JD-relevant come first.
 - Reword bullets to use the JD's terminology where it is truthfully equivalent
   (e.g. "agent orchestration" vs "tool-calling workflows").
@@ -94,20 +95,22 @@ CSS = """
 
 
 def load_master() -> str:
-    with open(MASTER_PATH) as f:
+    # encoding explícito: sem ele o Windows lê UTF-8 como cp1252 e corrompe acentos
+    with open(MASTER_PATH, encoding="utf-8") as f:
         return f.read()
 
 
 def load_cover_master() -> str:
     if not os.path.exists(COVER_MASTER_PATH):
         return ""
-    with open(COVER_MASTER_PATH) as f:
+    with open(COVER_MASTER_PATH, encoding="utf-8") as f:
         return f.read()
 
 
-def tailor_markdown(llm, model: str, jd_text: str) -> str:
+def tailor_markdown(llm, model: str, jd_text: str, max_tokens: int = 2500) -> str:
     resp = llm.chat.completions.create(
         model=model,
+        max_tokens=max_tokens,
         messages=[{
             "role": "user",
             "content": TAILOR_PROMPT.format(master=load_master(), jd=jd_text[:12000]),
@@ -179,9 +182,9 @@ def slug_for(url: str) -> str:
 async def make_tailored_resume(pw, llm, model: str, jd_text: str, job_url: str) -> str:
     """Returns the path of the tailored PDF for this job."""
     os.makedirs(OUT_DIR, exist_ok=True)
-    out_path = os.path.join(OUT_DIR, f"KevinKakolla_{slug_for(job_url)}.pdf")
+    out_path = os.path.join(OUT_DIR, f"resume_{slug_for(job_url)}.pdf")
     md = tailor_markdown(llm, model, jd_text)
-    with open(out_path.replace(".pdf", ".md"), "w") as f:
+    with open(out_path.replace(".pdf", ".md"), "w", encoding="utf-8") as f:
         f.write(md)  # kept beside the PDF so you can audit what was sent
     await render_pdf(pw, md_to_html(md), out_path)
     return out_path
@@ -192,9 +195,10 @@ async def make_cover_letter(pw, llm, model: str, jd_text: str, job_url: str,
     """Returns the path of a tailored cover-letter PDF citing real work examples."""
     import yaml
     os.makedirs(OUT_DIR, exist_ok=True)
-    out_path = os.path.join(OUT_DIR, f"KevinKakolla_cover_{slug_for(job_url)}.pdf")
+    out_path = os.path.join(OUT_DIR, f"cover_{slug_for(job_url)}.pdf")
     resp = llm.chat.completions.create(
         model=model,
+        max_tokens=1500,
         messages=[{
             "role": "user",
             "content": COVER_PROMPT.format(
@@ -210,7 +214,7 @@ async def make_cover_letter(pw, llm, model: str, jd_text: str, job_url: str,
         }],
     )
     md = re.sub(r"^```(?:markdown)?\n|\n```$", "", resp.choices[0].message.content.strip())
-    with open(out_path.replace(".pdf", ".md"), "w") as f:
+    with open(out_path.replace(".pdf", ".md"), "w", encoding="utf-8") as f:
         f.write(md)  # auditable, same as the resume
     await render_pdf(pw, md_to_html(md), out_path)
     return out_path
